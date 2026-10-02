@@ -16,7 +16,7 @@ class ChatState(TypedDict):
 
 def chat_node(state:ChatState):
     messages = state['messages']
-    response = model.invoke(messages).content
+    response = model.invoke(messages)
     return {'messages':[response]}
 
 checkpointer = MemorySaver()

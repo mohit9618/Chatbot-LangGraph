@@ -176,10 +176,11 @@ if user_input:
 
     with st.chat_message('assistant'):
 
-        ai_message = st.write_stream(
-            message_chunk.content
-            for message_chunk, metadata
-            in chatbot.stream(
+        def generate_response():
+
+            shown_tools = set()
+
+            for message_chunk, metadata in chatbot.stream(
                 {
                     'messages': [
                         HumanMessage(content=user_input)
@@ -187,8 +188,31 @@ if user_input:
                 },
                 config=config,
                 stream_mode='messages'
-            )
-        )
+            ):
+
+                if message_chunk.type == "AIMessageChunk":
+
+                    tool_calls = getattr(
+                        message_chunk,
+                        "tool_call_chunks",
+                        []
+                    )
+
+                    for tool_call in tool_calls:
+
+                        tool_name = tool_call.get("name")
+
+                        if tool_name and tool_name not in shown_tools:
+                            st.caption(f"🔧 Using `{tool_name}`...")
+                            shown_tools.add(tool_name)
+
+                    if message_chunk.content:
+                        yield message_chunk.content
+
+                elif message_chunk.type == "tool":
+                    continue
+
+        ai_message = st.write_stream(generate_response())
 
 
     st.session_state['message_history'].append({

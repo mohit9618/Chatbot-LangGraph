@@ -173,7 +173,7 @@ if user_input:
         'run_name': 'chat_turn'
     }
 
-
+ 
     with st.chat_message('assistant'):
 
         def generate_response():

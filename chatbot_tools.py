@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
 import requests
 from langchain_community.tools import DuckDuckGoSearchRun
-from langchain_core.tools import tool
+
 
 search_tool = DuckDuckGoSearchRun()
 

@@ -1,7 +1,13 @@
 import streamlit as st
-from chatbot_backend import chatbot, retrieve_all_threads
+from chatbot_backend import chatbot, retrieve_all_threads,ingest_pdf
 from langchain_core.messages import HumanMessage
 import uuid
+
+# IMPORTANT:
+# Import ingest_pdf from wherever you have defined it.
+# Example:
+# from pdf_ingestion import ingest_pdf
+
 
 def generate_thread_id():
     return uuid.uuid4()
@@ -17,6 +23,9 @@ def reset_chat():
 
     st.session_state['thread_id'] = thread_id
     st.session_state['message_history'] = []
+
+    # Reset PDFs for the new chat
+    st.session_state['thread_docs'] = {}
 
     add_thread(thread_id)
 
@@ -38,6 +47,10 @@ def load_conversation(thread_id):
 def generate_chat_name(message):
     return message[:30] + "..." if len(message) > 30 else message
 
+
+# -----------------------------
+# SESSION STATE
+# -----------------------------
 
 if 'message_history' not in st.session_state:
     st.session_state['message_history'] = []
@@ -69,6 +82,21 @@ if 'thread_id' not in st.session_state:
 
     st.session_state['chat_created'] = False
 
+
+# PDF storage for current chat
+if 'thread_docs' not in st.session_state:
+    st.session_state['thread_docs'] = {}
+
+
+# Short variable so the PDF code is easier to read
+thread_id = st.session_state['thread_id']
+thread_docs = st.session_state['thread_docs']
+
+
+# -----------------------------
+# SIDEBAR
+# -----------------------------
+
 st.sidebar.title('GupShup AI')
 
 
@@ -78,6 +106,66 @@ if st.sidebar.button('New Chat'):
 
     st.rerun()
 
+
+# -----------------------------
+# PDF UPLOAD
+# -----------------------------
+
+uploaded_pdf = st.sidebar.file_uploader(
+    "Upload a PDF for this chat",
+    type=["pdf"]
+)
+
+
+if uploaded_pdf:
+
+    if uploaded_pdf.name in thread_docs:
+
+        st.sidebar.info(
+            f"`{uploaded_pdf.name}` already processed for this chat."
+        )
+
+    else:
+
+        with st.sidebar.status(
+            "Indexing PDF…",
+            expanded=True
+        ) as status_box:
+
+            summary = ingest_pdf(
+                uploaded_pdf.getvalue(),
+                thread_id=thread_id,
+                filename=uploaded_pdf.name
+            )
+
+            thread_docs[uploaded_pdf.name] = summary
+
+            status_box.update(
+                label="✅ PDF indexed",
+                state="complete",
+                expanded=False
+            )
+
+
+# Show current PDF
+if thread_docs:
+
+    latest_doc = list(thread_docs.values())[-1]
+
+    st.sidebar.success(
+        f"Using `{latest_doc.get('filename')}` "
+        f"({latest_doc.get('chunks')} chunks from "
+        f"{latest_doc.get('documents')} pages)"
+    )
+
+else:
+
+    st.sidebar.info("No PDF indexed yet.")
+
+
+# -----------------------------
+# EXISTING CONVERSATIONS
+# -----------------------------
 
 st.sidebar.header('My Conversations')
 
@@ -114,11 +202,17 @@ for thread_id in st.session_state['chat_threads']:
 
         st.session_state['message_history'] = temp_messages
 
+        # Reset PDF UI when switching chats
+        st.session_state['thread_docs'] = {}
+
         st.session_state['chat_created'] = True
 
         st.rerun()
 
 
+# -----------------------------
+# DISPLAY CHAT
+# -----------------------------
 
 for message in st.session_state['message_history']:
 
@@ -127,6 +221,10 @@ for message in st.session_state['message_history']:
     ):
         st.markdown(message['content'])
 
+
+# -----------------------------
+# CHAT INPUT
+# -----------------------------
 
 user_input = st.chat_input('Type here')
 
@@ -146,7 +244,6 @@ if user_input:
         st.session_state['chat_created'] = True
 
 
-
     elif thread_id not in st.session_state['chat_names']:
 
         st.session_state['chat_names'][thread_id] = (
@@ -158,6 +255,7 @@ if user_input:
         'role': 'user',
         'content': user_input
     })
+
 
     with st.chat_message('user'):
         st.markdown(user_input)
@@ -173,7 +271,7 @@ if user_input:
         'run_name': 'chat_turn'
     }
 
- 
+
     with st.chat_message('assistant'):
 
         def generate_response():
@@ -203,16 +301,24 @@ if user_input:
                         tool_name = tool_call.get("name")
 
                         if tool_name and tool_name not in shown_tools:
-                            st.caption(f"🔧 Using `{tool_name}`...")
+
+                            st.caption(
+                                f"🔧 Using `{tool_name}`..."
+                            )
+
                             shown_tools.add(tool_name)
 
                     if message_chunk.content:
                         yield message_chunk.content
 
+
                 elif message_chunk.type == "tool":
                     continue
 
-        ai_message = st.write_stream(generate_response())
+
+        ai_message = st.write_stream(
+            generate_response()
+        )
 
 
     st.session_state['message_history'].append({
